@@ -305,6 +305,10 @@ async fn bridge_ws(
                 for part in splitter.flush() {
                     let _ = ws_sink.send(Message::Binary(part)).await;
                 }
+                // Close the WS sink so Telegram knows we are done and the
+                // download direction (ws_source) receives the close frame and
+                // terminates promptly instead of waiting indefinitely.
+                let _ = ws_sink.close().await;
                 total
             }
         },

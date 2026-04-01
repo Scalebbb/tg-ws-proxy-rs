@@ -14,12 +14,14 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
+use futures_util::{FutureExt, StreamExt};
+
 use crate::config::Config;
 use crate::ws_client::{connect_ws_for_dc, TgWsStream};
 
-// Age limit for pooled connections.  An idle connection older than this is
-// discarded rather than handed to a client (Telegram closes idle WS in ~2 min).
-const MAX_AGE: Duration = Duration::from_secs(120);
+// Age limit for pooled connections.  Telegram closes idle WebSocket connections
+// after roughly 60 seconds, so anything older than that is likely dead.
+const MAX_AGE: Duration = Duration::from_secs(55);
 
 struct PoolEntry {
     ws: TgWsStream,
@@ -58,9 +60,23 @@ impl WsPool {
         let bucket = lock.entry((dc, is_media)).or_default();
 
         // Drain from the back (LIFO) so the freshest connections are used first.
-        while let Some(entry) = bucket.pop() {
+        while let Some(mut entry) = bucket.pop() {
             if now.saturating_duration_since(entry.created) > MAX_AGE {
                 // Entry is stale; drop it (close happens on drop via tungstenite).
+                continue;
+            }
+
+            // Non-blocking liveness check: if the server has already closed the
+            // WebSocket (TCP FIN received), `next()` resolves immediately with
+            // `None` or an error.  Any message arriving on an idle pre-warmed
+            // connection (close, error, or unexpected data) is treated as a sign
+            // that the connection is in an invalid state and should be discarded.
+            if entry.ws.next().now_or_never().is_some() {
+                debug!(
+                    "pool: discarding stale DC{}{} connection",
+                    dc,
+                    if is_media { "m" } else { "" }
+                );
                 continue;
             }
             let remaining = bucket.len();
