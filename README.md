@@ -1,6 +1,6 @@
 # tg-ws-proxy-rs
 
-**Telegram MTProto WebSocket Bridge Proxy** — a Rust port of
+**Telegram MTProto WebSocket Bridge Proxy** — a Rust **vibecoded** port of
 [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy).
 
 Listens for Telegram Desktop's MTProto connections on a local port and
