@@ -5,6 +5,11 @@
 //! while using the **domain** as the TLS SNI / HTTP Host, matching the Python
 //! reference implementation.
 //!
+//! DC numbers that don't have dedicated WebSocket hostnames (e.g. DC 203, the
+//! test DC) are remapped to their canonical counterpart via
+//! `default_dc_overrides()` before the domain is constructed, so the TLS
+//! certificate presented by Telegram's servers remains valid.
+//!
 //! TLS certificate verification is controlled by `Config::skip_tls_verify`.
 //! When disabled (default), verification uses the bundled WebPKI root store.
 //! When enabled (via `--danger-accept-invalid-certs`), a no-op verifier is
@@ -13,6 +18,8 @@
 
 use std::sync::Arc;
 use std::time::Duration;
+
+use crate::config::default_dc_overrides;
 
 use futures_util::{SinkExt, StreamExt};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
@@ -37,16 +44,23 @@ pub type TgWsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 ///
 /// Telegram provides two hostnames per DC; trying both increases resilience.
 /// Media DCs prefer the `kwsN-1` variant first.
+///
+/// Non-standard DC numbers (e.g. DC 203, the test/alternate DC) are remapped
+/// to their canonical WebSocket DC via `default_dc_overrides()` so that TLS
+/// certificate validation succeeds — Telegram's wildcard cert only covers the
+/// real DC numbers (1-5).
 pub fn ws_domains(dc: u32, is_media: bool) -> Vec<String> {
+    let overrides = default_dc_overrides();
+    let effective_dc = *overrides.get(&dc).unwrap_or(&dc);
     if is_media {
         vec![
-            format!("kws{}-1.web.telegram.org", dc),
-            format!("kws{}.web.telegram.org", dc),
+            format!("kws{}-1.web.telegram.org", effective_dc),
+            format!("kws{}.web.telegram.org", effective_dc),
         ]
     } else {
         vec![
-            format!("kws{}.web.telegram.org", dc),
-            format!("kws{}-1.web.telegram.org", dc),
+            format!("kws{}.web.telegram.org", effective_dc),
+            format!("kws{}-1.web.telegram.org", effective_dc),
         ]
     }
 }
