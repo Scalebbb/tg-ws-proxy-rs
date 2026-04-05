@@ -43,7 +43,7 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
-            # --- default path (all targets except mipsel) ---
+            # Default path (all targets except mipsel)
             - name: Build & upload (default)
               if: matrix.target != 'mipsel-unknown-linux-musl'
               uses: taiki-e/upload-rust-binary-action@v1
@@ -52,7 +52,7 @@ jobs:
                   target: ${{ matrix.target }}
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            # --- special path for mipsel ---
+            # Special path for mipsel: nightly + build-std, then upload via gh cli
             - name: Install nightly + rust-src (mipsel)
               if: matrix.target == 'mipsel-unknown-linux-musl'
               uses: dtolnay/rust-toolchain@nightly
@@ -67,12 +67,12 @@ jobs:
               if: matrix.target == 'mipsel-unknown-linux-musl'
               run: cross +nightly build --release --bin tg-ws-proxy --target mipsel-unknown-linux-musl -Z build-std=std,panic_abort
 
-            # (важно) upload-gh-release-asset требует путь к файлу.
-            # имя ассета делаем с суффиксом таргета, чтобы не конфликтовало с другими.
-            - name: Upload asset (mipsel)
+            - name: Upload to GitHub Release (mipsel)
               if: matrix.target == 'mipsel-unknown-linux-musl'
-              uses: taiki-e/upload-gh-release-asset@v1
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-                  files: |
-                      target/mipsel-unknown-linux-musl/release/tg-ws-proxy:tg-ws-proxy-mipsel-unknown-linux-musl
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  TAG="${GITHUB_REF_NAME}"
+                  gh release upload "$TAG" \
+                    "target/mipsel-unknown-linux-musl/release/tg-ws-proxy#tg-ws-proxy-mipsel-unknown-linux-musl" \
+                    --clobber
