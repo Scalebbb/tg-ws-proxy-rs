@@ -4,6 +4,7 @@ use std::io::Write;
 use std::sync::Arc;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 
 #[cfg(feature = "gui")]
 use parking_lot::RwLock;
@@ -48,15 +49,15 @@ pub fn init_file_logging(log_level: &str) {
     let file_appender = tracing_appender::rolling::daily(log_dir, "tg-ws-proxy.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| log_level.into());
+
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(non_blocking)
                 .with_ansi(false)
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| log_level.into()),
-                ),
+                .with_filter(env_filter),
         )
         .init();
 
@@ -81,24 +82,24 @@ pub fn init_gui_logging(
     let gui_writer = GuiLogWriter::new(log_messages);
     let (non_blocking_gui, _gui_guard) = tracing_appender::non_blocking(gui_writer);
 
+    let env_filter_file = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| log_level.into());
+    
+    let env_filter_gui = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| log_level.into());
+
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(non_blocking_file)
                 .with_ansi(false)
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| log_level.into()),
-                ),
+                .with_filter(env_filter_file),
         )
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(non_blocking_gui)
                 .with_ansi(false)
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| log_level.into()),
-                ),
+                .with_filter(env_filter_gui),
         )
         .init();
 
