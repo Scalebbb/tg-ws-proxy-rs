@@ -342,14 +342,6 @@ async fn run_proxy_server(
     semaphore: Arc<Semaphore>,
     _max_connections: usize,
 ) {
-#[cfg(not(feature = "gui"))]
-async fn run_proxy_server(
-    listener: TcpListener,
-    config: Config,
-    pool: Arc<WsPool>,
-    semaphore: Arc<Semaphore>,
-    _max_connections: usize,
-) {
     const EMFILE: i32 = 24;
     const ENFILE: i32 = 23;
     
