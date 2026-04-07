@@ -69,7 +69,7 @@ TG_PORT=1443 TG_SECRET=deadbeef... tg-ws-proxy
 2. Build from src 
     cargo build --release in your terminal
     build for all platforms:
-    (you need install cargo-zigbuild)
+    !(you need install cargo-zigbuild and zig)!
     ```bash 
     platforms.sh
     ```
