@@ -1,3 +1,11 @@
+<div style="display: flex; justify-content: center;">
+
+# about this fork: add gui and silent mode
+
+[about build](https://github.com/Scalebbb/tg-ws-proxy-rs/blob/main/BUILD_INSTRUCTIONS.md)
+
+</div>
+
 # tg-ws-proxy-rs
 
 **Telegram MTProto WebSocket Bridge Proxy** — a Rust **vibecoded** port of

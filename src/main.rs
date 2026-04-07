@@ -13,6 +13,8 @@
 //! See [`proxy`] for the connection handling logic and [`crypto`] for the
 //! MTProto obfuscation details.
 
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,6 +22,9 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
+
+#[cfg(feature = "gui")]
+use parking_lot::RwLock;
 
 // ── File-descriptor budget helpers ───────────────────────────────────────────
 
@@ -76,6 +81,10 @@ mod pool;
 mod proxy;
 mod splitter;
 mod ws_client;
+mod logger;
+
+#[cfg(feature = "gui")]
+mod gui;
 
 use config::Config;
 use pool::WsPool;
@@ -97,12 +106,19 @@ async fn main() {
         "info"
     };
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| log_level.into()),
-        )
-        .init();
+    #[cfg(feature = "gui")]
+    let log_messages = Arc::new(RwLock::new(Vec::new()));
+
+    #[cfg(feature = "gui")]
+    {
+        logger::init_gui_logging(log_level, log_messages.clone())
+            .expect("failed to initialize logging");
+    }
+
+    #[cfg(not(feature = "gui"))]
+    {
+        logger::init_file_logging(log_level);
+    }
 
     // ── Bind the server socket ────────────────────────────────────────────
     let addr: SocketAddr = format!("{}:{}", config.host, config.port)
@@ -195,6 +211,8 @@ async fn main() {
 
     // ── Connection pool warm-up ───────────────────────────────────────────
     let pool = Arc::new(WsPool::new(config.pool_size));
+    let semaphore = Arc::new(Semaphore::new(max_connections));
+    
     {
         let pool_clone = pool.clone();
         let config_clone = config.clone();
@@ -203,17 +221,139 @@ async fn main() {
         });
     }
 
-    // ── Accept loop ───────────────────────────────────────────────────────
-    // Acquire a permit before each accept() to cap concurrent connections.
-    // This prevents EMFILE (too many open files) by keeping file-descriptor
-    // usage bounded: at most `max_connections` client sockets plus the pool
-    // connections can be open simultaneously.
-    const EMFILE: i32 = 24; // too many open files (per-process fd limit)
-    const ENFILE: i32 = 23; // file table overflow (system-wide fd limit)
-    let semaphore = Arc::new(Semaphore::new(max_connections));
+    #[cfg(feature = "gui")]
+    {
+        let stats = Arc::new(RwLock::new(gui::ProxyStats::default()));
+        
+        // Prepare GUI display strings
+        let mut config_lines = vec![
+            format!("Listening: {}:{}", config.host, config.port),
+            format!("Secret: {}", secret),
+        ];
+        
+        if config.skip_tls_verify {
+            config_lines.push("⚠ TLS verification: DISABLED".to_string());
+        }
+        
+        config_lines.push(format!("Max connections: {}", max_connections));
+        
+        let config_display = config_lines.join("\n");
+        
+        // Clone for async task
+        let listener_clone = listener;
+        let config_clone = config.clone();
+        let pool_clone = pool.clone();
+        let stats_clone = stats.clone();
+        let semaphore_clone = semaphore.clone();
+        
+        // Spawn proxy server in background
+        tokio::spawn(async move {
+            run_proxy_server(
+                listener_clone,
+                config_clone,
+                pool_clone,
+                stats_clone,
+                semaphore_clone,
+                max_connections,
+            )
+            .await;
+        });
+        
+        // Run GUI on main thread
+        let native_options = eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_inner_size([600.0, 700.0])
+                .with_min_inner_size([500.0, 600.0])
+                .with_icon(eframe::icon_data::from_png_bytes(&[]).unwrap_or_default()),
+            ..Default::default()
+        };
+        
+        let app = gui::ProxyApp::new(config_display, tg_link, stats, log_messages);
+        
+        let _ = eframe::run_native(
+            "Telegram WS Proxy",
+            native_options,
+            Box::new(|_cc| Ok(Box::new(app))),
+        );
+    }
+
+    #[cfg(not(feature = "gui"))]
+    {
+        run_proxy_server(listener, config, pool, semaphore, max_connections).await;
+    }
+}
+
+#[cfg(feature = "gui")]
+async fn run_proxy_server(
+    listener: TcpListener,
+    config: Config,
+    pool: Arc<WsPool>,
+    stats: Arc<RwLock<gui::ProxyStats>>,
+    semaphore: Arc<Semaphore>,
+    _max_connections: usize,
+) {
+    const EMFILE: i32 = 24;
+    const ENFILE: i32 = 23;
+    
     loop {
-        // Block here when we are already at the connection limit.  Pending
-        // TCP connections queue in the kernel backlog until capacity frees up.
+        let permit = Arc::clone(&semaphore)
+            .acquire_owned()
+            .await
+            .expect("semaphore closed unexpectedly");
+
+        match listener.accept().await {
+            Ok((stream, peer_addr)) => {
+                {
+                    let mut s = stats.write();
+                    s.active_connections += 1;
+                    s.total_connections += 1;
+                }
+                
+                let cfg = config.clone();
+                let pool = pool.clone();
+                let stats_clone = stats.clone();
+                
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    proxy::handle_client(stream, peer_addr, cfg, pool).await;
+                    
+                    let mut s = stats_clone.write();
+                    s.active_connections = s.active_connections.saturating_sub(1);
+                });
+            }
+            Err(e) => {
+                if matches!(e.raw_os_error(), Some(EMFILE) | Some(ENFILE)) {
+                    warn!("accept error: {} — backing off to allow FDs to free", e);
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                } else {
+                    error!("accept error: {}", e);
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "gui"))]
+async fn run_proxy_server(
+    listener: TcpListener,
+    config: Config,
+    pool: Arc<WsPool>,
+    semaphore: Arc<Semaphore>,
+    _max_connections: usize,
+) {
+#[cfg(not(feature = "gui"))]
+async fn run_proxy_server(
+    listener: TcpListener,
+    config: Config,
+    pool: Arc<WsPool>,
+    semaphore: Arc<Semaphore>,
+    _max_connections: usize,
+) {
+    const EMFILE: i32 = 24;
+    const ENFILE: i32 = 23;
+    
+    loop {
         let permit = Arc::clone(&semaphore)
             .acquire_owned()
             .await
@@ -224,17 +364,11 @@ async fn main() {
                 let cfg = config.clone();
                 let pool = pool.clone();
                 tokio::spawn(async move {
-                    // Hold the permit for the lifetime of this connection so
-                    // it is released (and the slot freed) when the task ends.
                     let _permit = permit;
                     proxy::handle_client(stream, peer_addr, cfg, pool).await;
                 });
             }
             Err(e) => {
-                // EMFILE / ENFILE: the process has run out of file descriptors
-                // (e.g. from pool connections).  Back off longer to let
-                // existing connections close, and log at warn-level to avoid
-                // flooding the log with repeated identical messages.
                 if matches!(e.raw_os_error(), Some(EMFILE) | Some(ENFILE)) {
                     warn!("accept error: {} — backing off to allow FDs to free", e);
                     tokio::time::sleep(Duration::from_millis(500)).await;

@@ -9,6 +9,9 @@ license = "MIT"
 name = "tg-ws-proxy"
 path = "src/main.rs"
 
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -36,7 +39,8 @@ clap = { version = "4", features = ["derive", "env"] }
 
 # Structured logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+tracing-appender = "0.2"
 
 # Async stream utilities (SinkExt, StreamExt)
 futures-util = "0.3"
@@ -46,6 +50,15 @@ rustls = { version = "0.23", features = ["ring"] }
 rustls-pki-types = "1"
 # Bundled Mozilla root cert store (used by the default TLS connector)
 webpki-roots = "0.26"
+
+# GUI
+eframe = { version = "0.29", optional = true }
+egui = { version = "0.29", optional = true }
+parking_lot = { version = "0.12", optional = true }
+
+[features]
+default = ["gui"]
+gui = ["eframe", "egui", "parking_lot"]
 
 [profile.release]
 opt-level = 3
