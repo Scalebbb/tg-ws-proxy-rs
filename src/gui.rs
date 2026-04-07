@@ -82,7 +82,12 @@ impl eframe::App for ProxyApp {
                 ui.label(egui::RichText::new("Telegram Proxy Link").strong());
                 ui.add_space(5.0);
                 ui.horizontal(|ui| {
-                    ui.text_edit_singleline(&mut self.tg_link.as_str());
+                    let mut link_text = self.tg_link.clone();
+                    ui.add(
+                        egui::TextEdit::singleline(&mut link_text)
+                            .desired_width(f32::INFINITY)
+                            .interactive(false)
+                    );
                     if ui.button("📋 Copy").clicked() {
                         ui.output_mut(|o| o.copied_text = self.tg_link.clone());
                     }

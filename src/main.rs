@@ -83,6 +83,9 @@ mod splitter;
 mod ws_client;
 mod logger;
 
+#[cfg(feature = "dc-updater")]
+mod dc_updater;
+
 #[cfg(feature = "gui")]
 mod gui;
 
@@ -125,9 +128,43 @@ async fn main() {
         .parse()
         .expect("invalid listen address");
 
-    let listener = TcpListener::bind(addr)
-        .await
-        .unwrap_or_else(|e| panic!("cannot bind {}: {}", addr, e));
+    let listener = match TcpListener::bind(addr).await {
+        Ok(l) => {
+            info!("Successfully bound to {}", addr);
+            l
+        }
+        Err(e) => {
+            error!("Failed to bind to {}: {}", addr, e);
+            error!("Possible reasons:");
+            error!("  - Port {} is already in use by another application", config.port);
+            error!("  - Insufficient permissions to bind to this address");
+            error!("  - Address {} is not available on this system", config.host);
+            
+            #[cfg(feature = "gui")]
+            {
+                // Show error dialog in GUI mode
+                use std::io::Write;
+                let error_msg = format!(
+                    "Failed to start proxy server!\n\n\
+                    Cannot bind to {}:{}\n\n\
+                    Error: {}\n\n\
+                    Possible solutions:\n\
+                    - Check if port {} is already in use\n\
+                    - Try a different port with --port option\n\
+                    - Run as administrator if needed\n\
+                    - Check firewall settings",
+                    config.host, config.port, e, config.port
+                );
+                
+                // Try to show native error dialog
+                if let Err(write_err) = std::io::stderr().write_all(error_msg.as_bytes()) {
+                    eprintln!("Failed to write error: {}", write_err);
+                }
+            }
+            
+            panic!("Cannot bind to {}: {}", addr, e);
+        }
+    };
 
     // ── FD budget & effective max_connections ────────────────────────────
     // Each active connection uses 2 FDs: the accepted client socket and the
@@ -209,6 +246,26 @@ async fn main() {
     }
     info!("{}", "=".repeat(60));
 
+    // ── DC IP updater ─────────────────────────────────────────────────────
+    #[cfg(feature = "dc-updater")]
+    {
+        use std::sync::Arc;
+        use tokio::sync::RwLock;
+        
+        info!("Initializing DC IP updater...");
+        let initial_ips = dc_updater::get_dc_ips_with_fallback().await;
+        let dc_config_shared = Arc::new(RwLock::new(dc_updater::DcConfig {
+            ips: initial_ips,
+            timestamp: std::time::SystemTime::now(),
+        }));
+        
+        // Start background updater (check every 6 hours)
+        let dc_config_clone = dc_config_shared.clone();
+        tokio::spawn(async move {
+            dc_updater::dc_updater_task(dc_config_clone, Duration::from_secs(6 * 3600)).await;
+        });
+    }
+
     // ── Connection pool warm-up ───────────────────────────────────────────
     let pool = Arc::new(WsPool::new(config.pool_size));
     let semaphore = Arc::new(Semaphore::new(max_connections));
@@ -270,11 +327,20 @@ async fn main() {
         
         let app = gui::ProxyApp::new(config_display, tg_link, stats, log_messages);
         
-        let _ = eframe::run_native(
+        if let Err(e) = eframe::run_native(
             "Telegram WS Proxy",
             native_options,
             Box::new(|_cc| Ok(Box::new(app))),
-        );
+        ) {
+            error!("Failed to start GUI: {}", e);
+            error!("The proxy server is still running in the background.");
+            error!("Check the logs directory for more information.");
+            
+            // Keep the proxy running even if GUI fails
+            loop {
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+            }
+        }
     }
 
     #[cfg(not(feature = "gui"))]

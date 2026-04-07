@@ -12,14 +12,15 @@ use clap::Parser;
 // ─── Telegram DC default IPs ─────────────────────────────────────────────────
 // These are the "fallback" addresses used when a DC is not listed in
 // `--dc-ip` or when WebSocket routing fails and we must fall back to TCP.
+// Updated addresses as of 2024
 pub fn default_dc_ips() -> HashMap<u32, String> {
     [
-        (1, "149.154.175.50"),
+        (1, "149.154.175.53"),
         (2, "149.154.167.51"),
         (3, "149.154.175.100"),
         (4, "149.154.167.91"),
-        (5, "149.154.171.5"),
-        (203, "91.105.192.100"),
+        (5, "91.108.56.130"),
+        (203, "149.154.167.40"),
     ]
     .iter()
     .map(|(k, v)| (*k, v.to_string()))
@@ -180,14 +181,27 @@ impl Config {
         }
 
         // If no --dc-ip was given, use the built-in defaults.
+        // These will be updated by dc_updater if enabled.
         if cfg.dc_ip.is_empty() {
             cfg.dc_ip = vec![
-                (2, "149.154.167.220".to_string()),
-                (4, "149.154.167.220".to_string()),
+                (1, "149.154.175.53".to_string()),
+                (2, "149.154.167.51".to_string()),
+                (3, "149.154.175.100".to_string()),
+                (4, "149.154.167.91".to_string()),
+                (5, "91.108.56.130".to_string()),
             ];
         }
 
         cfg
+    }
+    
+    /// Update DC IPs from the updater config
+    #[cfg(feature = "dc-updater")]
+    pub fn update_dc_ips(&mut self, new_ips: &std::collections::HashMap<u32, String>) {
+        // Only update if user didn't specify custom IPs
+        if self.dc_ip.len() <= 5 {
+            self.dc_ip = new_ips.iter().map(|(k, v)| (*k, v.clone())).collect();
+        }
     }
 
     /// The proxy secret as raw bytes (decoded from hex).
