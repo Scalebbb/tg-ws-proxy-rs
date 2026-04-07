@@ -45,6 +45,10 @@ tracing-appender = "0.2"
 # Async stream utilities (SinkExt, StreamExt)
 futures-util = "0.3"
 
+# HTTP client for DC updater
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false, optional = true }
+serde_json = { version = "1.0", optional = true }
+
 # Custom TLS configuration (skip-verify option)
 rustls = { version = "0.23", features = ["ring"] }
 rustls-pki-types = "1"
@@ -57,8 +61,9 @@ egui = { version = "0.29", optional = true }
 parking_lot = { version = "0.12", optional = true }
 
 [features]
-default = ["gui"]
+default = ["gui", "dc-updater"]
 gui = ["eframe", "egui", "parking_lot"]
+dc-updater = ["reqwest", "serde_json"]
 
 [profile.release]
 opt-level = 3
