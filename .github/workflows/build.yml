@@ -1,0 +1,136 @@
+name: Build Multi-Platform
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux targets (headless)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            name: linux-x86_64
+            features: --no-default-features --features dc-updater
+            
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            name: linux-aarch64
+            features: --no-default-features --features dc-updater
+            
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+            name: linux-armv7
+            features: --no-default-features --features dc-updater
+            
+          - os: ubuntu-latest
+            target: mipsel-unknown-linux-musl
+            name: linux-mipsel
+            features: --no-default-features --features dc-updater
+            
+          # macOS targets (with GUI)
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            name: macos-x86_64
+            features: ""
+            
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: macos-aarch64
+            features: ""
+            
+          # Windows targets (with GUI)
+          - os: ubuntu-latest
+            target: x86_64-pc-windows-gnu
+            name: windows-x86_64
+            features: ""
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.11.0
+
+      - name: Install cargo-zigbuild
+        run: cargo install cargo-zigbuild
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        run: |
+          cargo zigbuild --release --target ${{ matrix.target }} ${{ matrix.features }}
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p dist
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            cp target/${{ matrix.target }}/release/tg-ws-proxy.exe dist/tg-ws-proxy-${{ matrix.name }}.exe
+          else
+            cp target/${{ matrix.target }}/release/tg-ws-proxy dist/tg-ws-proxy-${{ matrix.name }}
+          fi
+        shell: bash
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tg-ws-proxy-${{ matrix.name }}
+          path: dist/*
+          retention-days: 30
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

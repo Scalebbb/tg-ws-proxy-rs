@@ -2,3 +2,9 @@
 .DS_Store
 /logs
 *.log
+/dist
+*.exe
+*.deb
+*.rpm
+*.tar.gz
+*.zip

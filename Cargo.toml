@@ -12,6 +12,12 @@ path = "src/main.rs"
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Linux-specific dependencies if needed
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# macOS-specific dependencies if needed
+
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }

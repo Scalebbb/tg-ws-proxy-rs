@@ -73,7 +73,8 @@ TG_PORT=1443 TG_SECRET=deadbeef... tg-ws-proxy
     build for all platforms:
     (you need install cargo-zigbuild)
     ```bash 
-    platforms.sh
+    platforms.sh 
+    platforms.bat # for windows
     ```
     or 
     ```bash
