@@ -1,16 +1,14 @@
 [troubleshooting](https://github.com/scalebbb/tg-ws-proxy-rs/other/TROUBLESHOOTING_RU.md) | [Old readme](https://github.com/scalebbb/tg-ws-proxy-rs/other/oldREADME.md)
 
+</div>
+
+> [!WARNING]
+> ### Original developer - flowseal
+> https://github.com/Flowseal/tg-ws-proxy
 
 <div align="center">
 
 # <img src="https://github.com/Scalebbb/tg-ws-proxy-rs/blob/main/icon.ico" width="20" height="20"> [TG-WS-PROXY](https://github.com/Flowseal/tg-ws-proxy) on rust
-
-> [!WARNING]
->
-> ### Original developer - flowseal
->
-> https://github.com/Flowseal/tg-ws-proxy
->
 
 # Usage
 
